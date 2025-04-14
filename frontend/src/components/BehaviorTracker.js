@@ -1,83 +1,101 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
+import MouseTracker from './MouseTracker';
+import { sendBehaviorData } from '../utils/sendData';
 
-const BehaviorTracker = () => {
-  const lastMouseMoveTime = useRef(Date.now());
-  const lastKeyTime = useRef(Date.now());
-  const keyCount = useRef(0);
-  const blurCount = useRef(0);
-  const idleTimes = useRef([]);
-  const keystrokeIntervals = useRef([]);
+const BehaviorTracker = ({ onRiskUpdate }) => {
+  const [mouseData, setMouseData] = useState({});
+  const [keystrokeData, setKeystrokeData] = useState({});
+  const [activityData, setActivityData] = useState({ tabSwitches: 0 });
 
+  // Tab switch detection
   useEffect(() => {
-    const handleMouseMove = () => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setActivityData(prev => ({
+          ...prev,
+          tabSwitches: prev.tabSwitches + 1
+        }));
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  // Keystroke tracking
+  useEffect(() => {
+    let keyIntervals = [];
+    let lastKeyTime = Date.now();
+
+    const handleKeyDown = () => {
       const now = Date.now();
-      const idleTime = now - lastMouseMoveTime.current;
-      lastMouseMoveTime.current = now;
-      idleTimes.current.push(idleTime);
+      keyIntervals.push(now - lastKeyTime);
+      lastKeyTime = now;
     };
 
-    const handleKeyPress = () => {
-      const now = Date.now();
-      const keyInterval = now - lastKeyTime.current;
-      lastKeyTime.current = now;
-      keystrokeIntervals.current.push(keyInterval);
-      keyCount.current += 1;
-    };
+    const interval = setInterval(() => {
+      const avgInterval =
+        keyIntervals.length > 0
+          ? keyIntervals.reduce((a, b) => a + b, 0) / keyIntervals.length
+          : 0;
 
-    const handleBlur = () => {
-      blurCount.current += 1;
-    };
+      setKeystrokeData({
+        averageInterval: Math.round(avgInterval),
+        totalKeys: keyIntervals.length,
+      });
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('keydown', handleKeyPress);
-    window.addEventListener('blur', handleBlur);
+      keyIntervals = [];
+    }, 5000);
 
-    const sendBehaviorData = () => {
-      const behaviorData = {
-        mouseData: {
-          averageIdle: getAverage(idleTimes.current),
-        },
-        keystrokeData: {
-          averageInterval: getAverage(keystrokeIntervals.current),
-          totalKeys: keyCount.current,
-        },
-        activityData: {
-          tabSwitches: blurCount.current,
-        },
-      };
-
-      // Clear after sending
-      idleTimes.current = [];
-      keystrokeIntervals.current = [];
-
-      console.log("📤 Sending behavior data:", behaviorData);
-
-      fetch('http://localhost:5000/api/behavior', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(behaviorData),
-      }).catch(err => console.error("❌ Backend error:", err));
-    };
-
-    const interval = setInterval(sendBehaviorData, 5000); // Every 5s
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('keydown', handleKeyPress);
-      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('keydown', handleKeyDown);
       clearInterval(interval);
     };
   }, []);
 
-  const getAverage = (arr) => {
-    if (!arr.length) return 0;
-    const sum = arr.reduce((a, b) => a + b, 0);
-    return Math.round(sum / arr.length);
-  };
+  // Send all behavior data every 6 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const combinedData = {
+        mouseData,
+        keystrokeData,
+        activityData,
+      };
 
-  return null;
+      console.log("📤 Sending behavior data:", combinedData);
+
+      sendBehaviorData(combinedData).then((res) => {
+        if (res) {
+          console.log("⚠️ Risk Score:", res.riskScore);
+          console.log("🔍 Risk Level:", res.riskLevel);
+
+          if (onRiskUpdate) {
+            onRiskUpdate({
+              riskScore: res.riskScore,
+              riskLevel: res.riskLevel,
+              rawData: combinedData, // ✅ For logging
+            });
+          }
+
+          if (res.riskLevel === 'high') {
+            alert('⚠️ High Risk Detected! Please stay focused on the test.');
+          }
+        }
+      });
+    }, 6000);
+
+    return () => clearInterval(interval);
+  }, [mouseData, keystrokeData, activityData, onRiskUpdate]);
+
+  return (
+    <>
+      <MouseTracker onData={setMouseData} />
+    </>
+  );
 };
 
 export default BehaviorTracker;

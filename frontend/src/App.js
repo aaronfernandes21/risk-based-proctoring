@@ -1,50 +1,54 @@
-import React, { useEffect } from 'react';
+import React, { useState } from 'react';
 import './App.css';
 import BehaviorTracker from './components/BehaviorTracker';
-import { sendBehaviorData } from './utils/sendData';
 
 function App() {
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const mouseData = JSON.parse(localStorage.getItem("mouseData")) || {
-        averageIdle: 0,
-      };
-      const keystrokeData = JSON.parse(localStorage.getItem("keystrokeData")) || {
-        averageInterval: 0,
-        totalKeys: 0,
-      };
-      const activityData = JSON.parse(localStorage.getItem("activityData")) || {
-        tabSwitches: 0,
-      };
+  const [riskScore, setRiskScore] = useState(null);
+  const [riskLevel, setRiskLevel] = useState('');
+  const [log, setLog] = useState([]);
 
-      const combinedData = {
-        mouseData,
-        keystrokeData,
-        activityData,
-      };
+  const handleRiskUpdate = ({ riskScore, riskLevel, rawData }) => {
+    setRiskScore(riskScore);
+    setRiskLevel(riskLevel);
 
-      console.log("🔄 Sending behavior data:", combinedData);
-
-      sendBehaviorData(combinedData).then((res) => {
-        if (res) {
-          console.log("⚠️ Risk Score:", res.riskScore);
-          console.log("🔍 Risk Level:", res.riskLevel);
-
-          if (res.riskLevel === 'high') {
-            alert('⚠️ High Risk Detected! Please stay focused on the test.');
-          }
-        }
-      });
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
+    setLog(prevLog => [
+      ...prevLog,
+      {
+        timestamp: new Date().toLocaleTimeString(),
+        riskScore,
+        riskLevel,
+        rawData,
+      },
+    ]);
+  };
 
   return (
     <div className="App">
       <h1>🧠 Risk-Based Proctoring System</h1>
       <p>Behavior tracking in progress...</p>
-      <BehaviorTracker />
+
+      <BehaviorTracker onRiskUpdate={handleRiskUpdate} />
+
+      {riskScore !== null && (
+        <div className="risk-display">
+          <h2>🧾 Latest Risk Report</h2>
+          <p>Risk Score: <strong>{riskScore}</strong></p>
+          <p>Risk Level: <strong>{riskLevel}</strong></p>
+        </div>
+      )}
+
+      {log.length > 0 && (
+        <div className="log-section">
+          <h3>🕓 Risk Log</h3>
+          <ul>
+            {log.map((entry, index) => (
+              <li key={index}>
+                [{entry.timestamp}] Score: {entry.riskScore}, Level: {entry.riskLevel}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
